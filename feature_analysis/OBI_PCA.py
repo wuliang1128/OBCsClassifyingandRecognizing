@@ -7,14 +7,13 @@ import os
 from timm_oracle_mnist import get_datasets  #把原来的 代码换成 timm的代码
 from config import *
 import torch
-#导入 t-SNE 和可视化所需的库
-from sklearn.manifold import TSNE
+#导入 PCA 和可视化所需的库
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import seaborn as sns
-import matplotlib.patheffects as PathEffects
 
-#源自博文 【深度学习：t-SNE 】T 分布随机邻域嵌入： https://blog.csdn.net/jcfszxc/article/details/135888850
+
+#有点问题  还没修正 应该是不正确的
+
 
 def load_OracleMNIST():
     input_size =28
@@ -48,7 +47,7 @@ def load_OracleMNIST():
     datasets = get_datasets(
         train_transform, val_transform, train_root, val_root,
         train_classes=known_classes, open_set_classes=unknown_classes,
-        split_train_val=False
+        split_train_val = False
     )
 
     data_loader = {}
@@ -75,6 +74,10 @@ def load_OracleMNIST():
     train_concatenated_data = torch.cat(train_data, dim=0)
     train_concatenated_data = train_concatenated_data.squeeze(1)
     train_concatenated_labels = torch.cat(train_labels, dim=0)  #6类
+    # 使用 torch.unique 函数来获取唯一值，并返回唯一值的数量
+    # unique_labels = torch.unique(train_concatenated_labels)
+    # num_classes = len(unique_labels)
+    # print(f"Number of unique classes: {num_classes}")
 
     all_data_and_labels = list(val_loader)  # 这将返回一个包含多个 (data, label) 元组的列表
     # 如果你想分别获取所有的数据和标签，可以这样做：
@@ -85,46 +88,11 @@ def load_OracleMNIST():
     test_concatenated_labels = torch.cat(test_labels, dim=0) #6类
 
     train_concatenated_data = torch.cat((train_concatenated_data, test_concatenated_data), dim=0)
-    train_concatenated_labels = torch.cat((train_concatenated_labels, test_concatenated_labels), dim=0)  # 6 类
-    # 使用 torch.unique 函数来获取唯一值，并返回唯一值的数量
-    unique_labels = torch.unique(train_concatenated_labels)
-    num_classes = len(unique_labels)
-    print(f"Number of unique train_concatenated_data classes: {num_classes}")
+    train_concatenated_labels = torch.cat((train_concatenated_labels, test_concatenated_labels), dim=0)  #6 类
+
+
 
     return (train_concatenated_data, train_concatenated_labels), (test_concatenated_data, test_concatenated_labels)
-
-'''#数据可视化功能'''
-def plot_scatter(x, colors):
-    # choose a color palette with seaborn.
-    num_classes = len(np.unique(colors))
-    print(f"num_classes:{num_classes}")
-    palette = np.array(sns.color_palette("hls", num_classes))
-    print(palette)
-
-    # create a scatter plot.
-    f = plt.figure(figsize=(8, 8))
-    ax = plt.subplot(aspect='equal')
-    sc = ax.scatter(x[:, 0], x[:, 1], c=palette[colors.astype(int)], cmap=plt.colormaps['Paired'])
-    plt.xlim(-25, 25)
-    plt.ylim(-25, 25)
-    ax.axis('off')
-    ax.axis('tight')
-    ax.set_title('2 component PCA', fontsize=20)
-    # add the labels for each digit corresponding to the label
-    txts = []
-
-    for i in range(num_classes):
-        #Position of each label at median of data points.
-        xtext, ytext = np.median(x[colors == i, :], axis=0)
-        txt = ax.text(xtext, ytext, str(i), fontsize=24)
-        txt.set_path_effects([
-            PathEffects.Stroke(linewidth=5, foreground="w"),
-            PathEffects.Normal()])
-        txts.append(txt)
-
-    # 显示图形
-    plt.show()
-    return f, ax, sc, txts
 
 
 if __name__ == '__main__':
@@ -132,7 +100,7 @@ if __name__ == '__main__':
     # 加载 MNIST 数据集
 
     (X_train, y_train) , (X_test, y_test) = load_OracleMNIST()
-    print(f"X_train.shape:{X_train.shape}")
+    X_train.shape
 
     #创建一个包含多个图像和图像中的像素数的数组，并将 X_train 数据复制到 X
     X = np.zeros((X_train.shape[0], 784))
@@ -146,17 +114,45 @@ if __name__ == '__main__':
     Y = Y.sample(frac=0.1, random_state=10).reset_index(drop=True)
     df = X
 
-    #首先使用默认参数创建 TSNE 实例，然后将高维图像输入数据拟合到嵌入空间中，并使用 fit_transform 返回转换后的输出。
-    #图像数据的维度应为 (n_samples, n_features) 形状
+    #使用 sklearn.decomposition 中的 PCA 库应用 PCA。
     time_start = time.time()
-    tsne = TSNE(random_state=0)
-    tsne_results = tsne.fit_transform(df.values)
-    print('t-SNE done! Time elapsed: {} seconds'.format(time.time() - time_start))
-    #将标签添加到数据框中，并且仅在绘图期间使用它来标记集群以进行可视化。
-    df['label'] = Y
+    pca = PCA(n_components=2)
+    pca_results = pca.fit_transform(df.values)
+    print('PCA done! Time elapsed: {} seconds'.format(time.time() - time_start))
+    #PCA 生成两个维度，主成分 1 和主成分 2。将两个 PCA 成分与标签一起添加到数据框中。
+    pca_df = pd.DataFrame(data=pca_results
+                          , columns=['pca_1', 'pca_2'])
+    pca_df['label'] = Y
+    #绘制 PCA 结果
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_xlabel('Principal Component 1', fontsize=15)
+    ax.set_ylabel('Principal Component 2', fontsize=15)
+    ax.set_title('2 component PCA', fontsize=20)
+    # Y 有几类就是几个颜色和标签
+    all_colors = ['yellow', 'black', 'cyan', 'green', 'blue', 'red', 'brown', 'crimson', 'gold', 'indigo']
+    all_labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    y_labels = np.unique(Y)
+    # 使用这些唯一标签作为索引来从 all_colors 中选择相应的颜色
+    colors = [all_colors[label] for label in y_labels]
+    targets = y_labels
 
-    plot_scatter(tsne_results, df['label'])
+    for target, color in zip(targets, colors):
+        indicesToKeep = pca_df['label'] == target
+        ax.scatter(pca_df.loc[indicesToKeep, 'pca_1']
+                   , pca_df.loc[indicesToKeep, 'pca_2']
+                   , c=color
+                   , s=50)
+    ax.legend(targets)
+    ax.grid()
+    # 显示图形
+    plt.show()
 
     print('result:')
+
+
+
+
+
 
 
