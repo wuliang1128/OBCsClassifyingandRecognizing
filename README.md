@@ -9,4 +9,6 @@ the Oracle-241 dataset can be accessed at https://github.com/wm-bupt/STSN.
 
 Simply place the data into the data directory to run the experiment.
 
-（2） 
+（2） Training commands: The script contains our training command files.
+
+
