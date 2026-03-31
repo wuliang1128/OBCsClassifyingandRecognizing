@@ -8,14 +8,13 @@ from torchvision import datasets, models, transforms
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from scipy.stats import entropy
-from tqdm import tqdm
 
 
-def train_net(model, loader, criterion, optimizer, device, args):
+def train_net(model, loader, criterion, optimizer, device):
     running_loss = 0.0
     running_corrects = 0
     num_sample = 0
-    for inputs, labels, _ in loader:
+    for inputs, labels in loader:
         inputs = inputs.to(device)
         num_sample += inputs.size(0)
         labels = labels.to(device)
@@ -32,12 +31,12 @@ def train_net(model, loader, criterion, optimizer, device, args):
     return loss, acc
 
 
-def val_net(model, loader, criterion, device, args):
+def val_net(model, loader, criterion, device):
     with torch.no_grad():
         running_loss = 0.0
         running_corrects = 0
         num_sample = 0
-        for inputs, labels, _ in loader:
+        for inputs, labels in loader:
             inputs = inputs.to(device)
             num_sample += inputs.size(0)
             labels = labels.to(device)
@@ -96,62 +95,7 @@ class Net0(nn.Module):
         return x
 
 
-def eval_ood(model, known_loader, unknown_loader, device, args):
-    model.eval()
-    ood_methods = args.ood_methods
-    ##################################################################
-    # for known
-    ##################################################################
-    correct, num_known, = 0, 0
-    known_ood_scores = []
-    AUROCs = {}
-    known_ood_scores = {}
-    for ood_method in ood_methods:
-        known_ood_scores[ood_method] = []
-    with torch.no_grad():
-        for data, labels, _ in known_loader:
-            data = data.to(device)
-            labels = labels.to(device)
-            logits = model(data)
-            probs = F.softmax(logits, dim=1)
-            pred = logits.max(1)[1]
-            num_known += data.size(0)
-            correct += (pred == labels).sum()
-            for ood_method in ood_methods:
-                known_ood_scores[ood_method].append(get_ood_score(logits, probs, args, ood_method))
-    for ood_method in ood_methods:
-        known_ood_scores[ood_method] = np.hstack(known_ood_scores[ood_method]).flatten()
-    assert known_ood_scores[ood_methods[0]].shape[0] == num_known
-    ##################################################################
-    # for unknown
-    ##################################################################
-    num_unknown = 0
-    unknown_ood_scores = {}
-    for ood_method in ood_methods:
-        unknown_ood_scores[ood_method] = []
-    with torch.no_grad():
-        for data, labels, _ in unknown_loader:
-            data = data.to(device)
-            logits = model(data)
-            probs = F.softmax(logits, dim=1)
-            num_unknown += data.size(0)
-            for ood_method in ood_methods:
-                unknown_ood_scores[ood_method].append(get_ood_score(logits, probs, args, ood_method))
-    for ood_method in ood_methods:
-        unknown_ood_scores[ood_method] = np.hstack(unknown_ood_scores[ood_method]).flatten()
-    assert unknown_ood_scores[ood_methods[0]].shape[0] == num_unknown
-    ##################################################################
-    # compute output: acc and auroc
-    ##################################################################
-    acc = float(correct) / float(num_known)
-    labels = np.hstack((np.zeros_like(known_ood_scores[ood_methods[0]]), np.ones_like(unknown_ood_scores[ood_methods[0]])))
-    for ood_method in ood_methods:
-        ood_scores = np.hstack((known_ood_scores[ood_method], unknown_ood_scores[ood_method]))
-        AUROCs[ood_method] = roc_auc_score(labels, ood_scores)
-    return acc, AUROCs
-
-
-def get_ood_score(logit, prob, args, method='max_logit'):
+def get_ood_score(logit, prob, method='max_logit'):
     logit = logit.detach().cpu().numpy()
     prob = prob.detach().cpu().numpy()
     if method == 'max_logit':
@@ -164,10 +108,53 @@ def get_ood_score(logit, prob, args, method='max_logit'):
     elif method == 'energy':
         return -np.log(np.exp(logit).sum(axis=1)).flatten()
     elif method == 'GEN':
-        M = args.GEN_M
-        gamma = args.GEN_gamma
+        M = 6
+        gamma = 0.1
         sorted_prob = np.sort(prob, axis=-1)[:, ::-1]
         gen_entropy = np.sum(sorted_prob[:, :M] ** gamma * (1 - sorted_prob[:, :M]) ** gamma, axis=-1).flatten()
         return gen_entropy
     else:
         raise NotImplemented('Please check the method to compute ood score')
+
+
+def eval_ood(model, known_loader, unknown_loader, device, method='max_logit'):
+    model.eval()
+    ##################################################################
+    # for known
+    ##################################################################
+    correct, num_known, = 0, 0
+    known_ood_scores = []
+    with torch.no_grad():
+        for data, labels in known_loader:
+            data = data.to(device)
+            labels = labels.to(device)
+            logits = model(data)
+            probs = F.softmax(logits, dim=1)
+            pred = logits.max(1)[1]
+            num_known += data.size(0)
+            correct += (pred == labels).sum()
+            known_ood_scores.append(get_ood_score(logits, probs, method))
+    known_ood_scores = np.hstack(known_ood_scores).flatten()
+    assert known_ood_scores.shape[0] == num_known
+    ##################################################################
+    # for unknown
+    ##################################################################
+    num_unknown = 0
+    unknown_ood_scores = []
+    with torch.no_grad():
+        for data, labels in unknown_loader:
+            data = data.to(device)
+            logits = model(data)
+            probs = F.softmax(logits, dim=1)
+            num_unknown += data.size(0)
+            unknown_ood_scores.append(get_ood_score(logits, probs, method))
+    unknown_ood_scores = np.hstack(unknown_ood_scores)
+    assert unknown_ood_scores.shape[0] == num_unknown
+    ##################################################################
+    # compute output: acc and auroc
+    ##################################################################
+    acc = float(correct) / float(num_known)
+    labels = np.hstack((np.zeros_like(known_ood_scores), np.ones_like(unknown_ood_scores)))
+    ood_scores = np.hstack((known_ood_scores, unknown_ood_scores))
+    auroc = roc_auc_score(labels, ood_scores)
+    return acc, auroc
