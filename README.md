@@ -18,7 +18,7 @@ Simply place the data into the data directory to run the experiment.
 (4)Dynamic GridMask
 
 <img width="1106" height="560" alt="image" src="https://github.com/user-attachments/assets/42f5b141-35d0-4cd3-9720-46f5a8e61f75" />
-(5)Intra-class image-fusion
+(5)Intra-class image-fusion <br/>
 
 <img width="336" height="35" alt="image" src="https://github.com/user-attachments/assets/bfa9f2f4-6e62-4dc3-90f7-6a3cea5b0752" />
 <img width="333" height="28" alt="image" src="https://github.com/user-attachments/assets/946f6d7f-9eb9-4876-bdc7-2d7b67541934" />
